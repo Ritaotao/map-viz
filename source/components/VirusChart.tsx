@@ -4,31 +4,28 @@
  * @author: shadowingszy
  *
  * 传入props说明:
- * data: 各省市数据。
+ * data: 各省市或国家数据。
+ * area: 当前选中的国家或省市。
  */
 
 import { observer } from 'mobx-web-cell';
 import { component, mixin, createCell, watch, attribute } from 'web-cell';
 import { WebCellEcharts } from './WebCellEcharts';
-import {
-  Series,
-  ProvinceData,
-  CountryData,
-  CountryOverviewData
-} from '../adapters/patientStatInterface';
-import echarts from 'echarts';
+import { Series, ProvinceData, CountryData, CountryOverviewData, OverallCountryData } from '../adapters/patientStatInterface';
+import provinceName from '../../data/isaaclin/provinces.json';
 
 interface Props {
-  data: {
-    provincesSeries: Series<ProvinceData> | CountryData;
-    countrySeries: Series<CountryOverviewData>;
-  };
+  data: OverallCountryData;
   area: string;
+  path: Array<string>;
 }
 
 interface State {
   echartOptions: any;
 }
+
+const LINE_WIDTH = 5;
+const SYMOBL_SIZE = 10;
 
 @observer
 @component({
@@ -38,38 +35,18 @@ interface State {
 export class VirusChart extends mixin<Props, State>() {
   @attribute
   @watch
-  public data: CountryData | Series<ProvinceData> = {};
+  public data: OverallCountryData = {
+    provincesSeries: {},
+    countrySeries: {}
+  };
 
   @attribute
   @watch
   public area: string = '';
 
-  // chartId = this.generateChartId();
-  // myChart = null;
-
-  /**
-   * 使用随机数+date生成当前组件的唯一ID
-   */
-  // generateChartId() {
-  //   const random = Math.floor(Math.random() * 100);
-  //   const dateStr = new Date().getTime();
-  //   return 'map' + random.toString() + dateStr.toString();
-  // }
-
-  // state = {
-  //   echartOptions: this.getConfirmedSuspectChartOptions(
-  //     this.getOrderedTimeData(this.props.data.provincesSeries),
-  //     this.getOrderedTimeData(this.props.data.countrySeries),
-  //     this.props.area)
-  // };
-
-  // connectedCallback() {
-  //   setTimeout(() => {
-  //     this.myChart = echarts.init(document.getElementById(this.chartId));
-  //     console.log('123', this.state.echartOptions)
-  //     this.myChart.setOption(this.state.echartOptions);
-  //   }, 0);
-  // }
+  @attribute
+  @watch
+  public path: Array<string> = [];
 
   public getOrderedTimeData(
     data: CountryData | Series<ProvinceData> | Series<CountryOverviewData>
@@ -85,29 +62,72 @@ export class VirusChart extends mixin<Props, State>() {
     return output;
   }
 
+  public fixChartFontSize(baseFontSize: number) {
+    const isPC = (window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth) >
+      (window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight) * 0.8
+
+    if (isPC) {
+      return baseFontSize * (window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth) / 1000;
+    } else {
+      return baseFontSize * (window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth) / 500;
+    }
+  }
+
   public getData(
     orderedProvinceData: Array<any>,
     orderedOverviewData: Array<any>,
-    area: string
+    area: string,
+    path: Array<string>
   ) {
     let confirmedData = [];
     let suspectedData = [];
     let curedData = [];
     let deadData = [];
 
-    if (area === '中国') {
+    if (path.length === 0 && area === '中国') {
       for (const item of orderedOverviewData) {
         confirmedData.push([item.date, item.confirmedCount]);
         suspectedData.push([item.date, item.suspectedCount]);
         curedData.push([item.date, item.curedCount]);
         deadData.push([item.date, item.deadCount]);
       }
-    } else {
+    } else if (path.length === 1 && provinceName.indexOf(area) !== -1) {
       for (const item of orderedProvinceData) {
         confirmedData.push([item.date, item[area] ? item[area].confirmed : 0]);
         suspectedData.push([item.date, item[area] ? item[area].suspected : 0]);
         curedData.push([item.date, item[area] ? item[area].cured : 0]);
         deadData.push([item.date, item[area] ? item[area].dead : 0]);
+      }
+    } else if (path.length === 1 && provinceName.indexOf(area) === -1) {
+      for (const item of orderedProvinceData) {
+        confirmedData.push([item.date,
+        item[path[0]] ?
+          item[path[0]].cities[area] ?
+            item[path[0]].cities[area].confirmed
+            : 0
+          : 0
+        ]);
+        suspectedData.push([item.date,
+        item[path[0]] ?
+          item[path[0]].cities[area] ?
+            item[path[0]].cities[area].suspected
+            : 0
+          : 0
+        ]);
+        curedData.push([item.date,
+        item[path[0]] ?
+          item[path[0]].cities[area] ?
+            item[path[0]].cities[area].cured
+            : 0
+          : 0
+        ]);
+        deadData.push([item.date,
+        item[path[0]] ?
+          item[path[0]].cities[area] ?
+            item[path[0]].cities[area].dead
+            : 0
+          : 0
+        ]);
       }
     }
 
@@ -122,19 +142,17 @@ export class VirusChart extends mixin<Props, State>() {
   public getConfirmedSuspectChartOptions(
     orderedProvinceData: Array<any>,
     orderedOverviewData: Array<any>,
-    area: string
+    area: string,
+    path: Array<string>
   ) {
     const { confirmedData, suspectedData } = this.getData(
       orderedProvinceData,
       orderedOverviewData,
-      area
+      area,
+      path
     );
 
-    console.log(area, area === '中国');
     return {
-      title: {
-        text: area + '疫情确诊/疑似数'
-      },
       legend: {
         orient: 'horizontal',
         data: ['确诊', '疑似']
@@ -144,10 +162,32 @@ export class VirusChart extends mixin<Props, State>() {
       },
       xAxis: {
         name: '时间',
-        type: 'time'
+        type: 'time',
+        nameTextStyle: {
+          fontSize: this.fixChartFontSize(9)
+        },
+        nameGap: 5,
+        axisLabel: {
+          textStyle: {
+            fontSize: this.fixChartFontSize(7)
+          },
+          formatter: function (params) {
+            const date = new Date(params);
+            return (date.getMonth() + 1) + '/' + date.getDate();
+          }
+        }
       },
       yAxis: {
-        name: '例'
+        name: '确诊/疑似数',
+        nameTextStyle: {
+          fontSize: this.fixChartFontSize(9)
+        },
+        nameGap: 10,
+        axisLabel: {
+          textStyle: {
+            fontSize: this.fixChartFontSize(7)
+          },
+        }
       },
       series: [
         {
@@ -155,86 +195,105 @@ export class VirusChart extends mixin<Props, State>() {
           data: confirmedData,
           type: 'line',
           stack: '总量',
-          areaStyle: {}
+          symbolSize: SYMOBL_SIZE,
+          lineStyle: { width: LINE_WIDTH },
+          areaStyle: { color: '#f6bdcd' }
         },
         {
           name: '疑似',
           data: suspectedData,
           type: 'line',
           stack: '总量',
-          areaStyle: {}
+          symbolSize: SYMOBL_SIZE,
+          lineStyle: { width: LINE_WIDTH },
+          areaStyle: { color: '#f9e4ba' }
         }
       ],
-      color: ['#FF2400', '#FFC30F']
+      color: ['#c22b49', '#cca42d']
     };
   }
 
   public getCuredDeadChartOptions(
     orderedProvinceData: Array<any>,
     orderedOverviewData: Array<any>,
-    area: string
+    area: string,
+    path: Array<string>
   ) {
     const { curedData, deadData } = this.getData(
       orderedProvinceData,
       orderedOverviewData,
-      area
+      area,
+      path
     );
 
     return {
-      title: {
-        text: '疫情治愈/死亡数'
-      },
       tooltip: {
         trigger: 'axis'
       },
       xAxis: {
         name: '时间',
-        type: 'time'
+        title: "时间",
+        type: 'time',
+        nameTextStyle: {
+          fontSize: this.fixChartFontSize(9)
+        },
+        nameGap: 5,
+        axisLabel: {
+          textStyle: {
+            fontSize: this.fixChartFontSize(7)
+          },
+          formatter: function (params) {
+            const date = new Date(params);
+            return (date.getMonth() + 1) + '/' + date.getDate();
+          }
+        }
       },
       yAxis: {
-        name: '例'
+        name: '治愈/死亡数',
+        nameTextStyle: {
+          fontSize: this.fixChartFontSize(9)
+        },
+        nameGap: 10,
+        axisLabel: {
+          textStyle: {
+            fontSize: this.fixChartFontSize(7)
+          },
+        }
       },
       legend: {
         orient: 'horizontal',
-        data: ['治愈', '死亡']
+        data: ['治愈', '死亡'],
+
       },
       series: [
         {
           name: '治愈',
           data: curedData,
-          type: 'line'
+          type: 'line',
+          symbolSize: SYMOBL_SIZE,
+          lineStyle: { width: LINE_WIDTH },
         },
         {
           name: '死亡',
           data: deadData,
-          type: 'line'
+          type: 'line',
+          symbolSize: SYMOBL_SIZE,
+          lineStyle: { width: LINE_WIDTH },
         }
       ],
-      color: ['#30cb00', '#808080']
+      color: ['#2dce89', '#86868d']
     };
   }
 
   public render() {
-    const { data, area } = this.props;
+    const { data, area, path } = this.props;
     const orderedProvincesData = this.getOrderedTimeData(data.provincesSeries);
     const orderedCountryData = this.getOrderedTimeData(data.countrySeries);
 
     return (
-      <div>
-        <WebCellEcharts
-          chartOptions={this.getConfirmedSuspectChartOptions(
-            orderedProvincesData,
-            orderedCountryData,
-            area
-          )}
-        />
-        <WebCellEcharts
-          chartOptions={this.getCuredDeadChartOptions(
-            orderedProvincesData,
-            orderedCountryData,
-            area
-          )}
-        />
+      <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
+        <WebCellEcharts style={{ width: '100%', height: '50%' }} chartOptions={this.getConfirmedSuspectChartOptions(orderedProvincesData, orderedCountryData, area, path)} />
+        <WebCellEcharts style={{ width: '100%', height: '50%' }} chartOptions={this.getCuredDeadChartOptions(orderedProvincesData, orderedCountryData, area, path)} />
       </div>
     );
   }
